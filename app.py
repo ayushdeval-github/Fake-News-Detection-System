@@ -1,120 +1,109 @@
 """
-app.py — Main Flask Application Entry Point
+app.py — Main Gradio Application Entry Point
 Fake News Detection System | Ayush Deval | Branch: ayush-deval | 2026-27
 
 Architecture:
-    User input → ML Model (LR/LSTM/BERT) → Groq LLaMA 3 70B → Combined verdict
+  User input → ML Model (LR/LSTM/BERT) → Groq LLaMA 3 70B → Combined verdict
 """
 
-from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS
-import time, logging, os
+import gradio as gr
+import time
+import logging
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-app = Flask(__name__)
-CORS(app)
-
+# Setup Logging
 logging.basicConfig(level=logging.INFO,
     format="%(asctime)s  [%(levelname)s]  %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+# Load ML Models globally so they only load once when the Space starts
 from utils.model_loader import load_all_models
 models_cache = load_all_models()
 logger.info("All ML models loaded into memory.")
 
-
-@app.route("/")
-def index():
-    return render_template("index.html")
-
-
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({
-        "status":        "ok",
-        "models_loaded": list(models_cache.keys()),
-        "groq_enabled":  bool(os.environ.get("GROQ_API_KEY"))
-    }), 200
-
-
-@app.route("/predict", methods=["POST"])
-def predict():
+def analyze_news(text, model_choice):
     """
-    POST /predict
-
-    Request JSON:
-        { "text": "news content here", "model": "lr" | "lstm" | "bert" }
-
-    Response JSON:
-        {
-            "final_verdict":    "Fake" | "Real",
-            "final_confidence": 94,
-            "ml_verdict":       "Fake",
-            "ml_confidence":    91,
-            "groq_verdict":     "Fake",
-            "groq_explanation": "This is false because...",
-            "groq_confidence":  "High",
-            "agreement":        "Both models agree",
-            "model_used":       "BERT",
-            "time_ms":          1420.5
-        }
+    Core prediction function. 
+    Takes inputs from the Gradio UI and returns a dictionary for the UI to display.
     """
     start_time = time.time()
+    text = text.strip()
+    model_choice = model_choice.lower()
 
-    data = request.get_json(silent=True)
-    if not data:
-        return jsonify({"error": "Request body must be valid JSON."}), 400
-
-    text         = data.get("text", "").strip()
-    model_choice = data.get("model", "lr").lower()
-
+    # Input Validation
     if not text or len(text) < 10:
-        return jsonify({"error": "Text must be at least 10 characters."}), 400
+        return {"error": "Text must be at least 10 characters long."}
     if model_choice not in ("lr", "lstm", "bert"):
-        return jsonify({"error": "Invalid model. Choose: lr, lstm, or bert."}), 400
+        return {"error": "Invalid model choice."}
 
-    # Step 1: ML Model
+    # Step 1: ML Model Inference
     try:
         from utils.predict import run_prediction
         ml_prediction, ml_confidence = run_prediction(text, model_choice, models_cache)
     except Exception as exc:
         logger.error("ML inference error: %s", exc, exc_info=True)
-        return jsonify({"error": "ML model inference failed.", "detail": str(exc)}), 500
+        return {"error": "ML model inference failed.", "detail": str(exc)}
 
-    # Step 2: Groq LLaMA 3 70B
+    # Step 2: Groq LLaMA 3 70B Analysis
     try:
         from utils.groq_client import analyze_with_groq
         groq_result = analyze_with_groq(text)
     except Exception as exc:
         logger.error("Groq error: %s", exc)
-        groq_result = {"verdict": "Unavailable", "explanation": str(exc),
-                       "confidence": "N/A", "groq_used": False}
+        groq_result = {
+            "verdict": "Unavailable", 
+            "explanation": f"Groq API Error: {str(exc)}",
+            "confidence": "N/A", 
+            "groq_used": False
+        }
 
-    # Step 3: Combine
-    from utils.groq_client import combined_verdict
-    result             = combined_verdict(ml_prediction, ml_confidence, groq_result)
-    result["model_used"] = model_choice.upper()
-    result["time_ms"]    = round((time.time() - start_time) * 1000, 2)
+    # Step 3: Combine Results
+    try:
+        from utils.groq_client import combined_verdict
+        result = combined_verdict(ml_prediction, ml_confidence, groq_result)
+        result["model_used"] = model_choice.upper()
+        result["time_ms"] = round((time.time() - start_time) * 1000, 2)
+        return result
+    except Exception as exc:
+        logger.error("Combiner error: %s", exc)
+        return {"error": "Failed to generate final verdict.", "detail": str(exc)}
 
-    return jsonify(result)
+# ---------------------------------------------------------
+# Build the Gradio Web Interface
+# ---------------------------------------------------------
+with gr.Blocks(theme=gr.themes.Soft()) as demo:
+    gr.Markdown("# 📰 Fake News Detection System")
+    gr.Markdown("**Architecture:** User input → ML Model (LR/LSTM/BERT) → Groq LLaMA 3 70B → Combined verdict")
+    
+    with gr.Row():
+        # Left side: User Inputs
+        with gr.Column():
+            news_input = gr.Textbox(
+                lines=8, 
+                label="News Article Text", 
+                placeholder="Paste the news article here (minimum 10 characters)..."
+            )
+            model_selector = gr.Dropdown(
+                choices=["lr", "lstm", "bert"], 
+                value="lr", 
+                label="Select Machine Learning Backend"
+            )
+            submit_btn = gr.Button("Analyze News", variant="primary")
+            
+        # Right side: Results Output
+        with gr.Column():
+            output_json = gr.JSON(label="Detection Results & AI Explanation")
 
+    # Connect the button to the function
+    submit_btn.click(
+        fn=analyze_news,
+        inputs=[news_input, model_selector],
+        outputs=output_json
+    )
 
-@app.errorhandler(404)
-def not_found(e):
-    return jsonify({"error": "Endpoint not found."}), 404
-
-@app.errorhandler(405)
-def method_not_allowed(e):
-    return jsonify({"error": "Method not allowed."}), 405
-
-@app.errorhandler(500)
-def server_error(e):
-    return jsonify({"error": "Internal server error."}), 500
-
-
+# Launch the app
 if __name__ == "__main__":
-    port  = int(os.environ.get("PORT", 5000))
-    debug = os.environ.get("FLASK_ENV", "production") == "development"
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    demo.launch()
