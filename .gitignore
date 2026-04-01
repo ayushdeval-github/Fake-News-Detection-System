@@ -4,7 +4,6 @@
 # Never push your actual environment variables. 
 # Keep your Groq API keys and other secrets in here.
 .env
-.env.example
 
 
 # ---------------------------------------------------
