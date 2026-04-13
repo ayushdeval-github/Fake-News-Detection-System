@@ -19,9 +19,13 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger(__name__)
 
 # ── Load ML Models ────────────────────────────
-from utils.model_loader import load_all_models
-models_cache = load_all_models()
-logger.info("All ML models loaded into memory.")
+try:
+    from utils.model_loader import load_all_models
+    models_cache = load_all_models()
+    logger.info("All ML models loaded into memory.")
+except KeyboardInterrupt:
+    logger.info("Startup interrupted by user.")
+    raise SystemExit(0)
 
 
 # ══════════════════════════════════════════════
@@ -277,4 +281,7 @@ def server_error(e):
 if __name__ == "__main__":
     port  = int(os.environ.get("PORT", 5000))
     debug = os.environ.get("FLASK_ENV", "production") == "development"
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    try:
+        app.run(host="0.0.0.0", port=port, debug=debug)
+    except KeyboardInterrupt:
+        logger.info("Server stopped by user.")
