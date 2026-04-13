@@ -1371,8 +1371,6 @@
                   <span class="conf-bar-pct" id="pctFake" style="color:var(--danger);">0%</span>
                 </div>
 
-                <!-- AGREEMENT BOX -->
-                <div class="agreement-box" id="agreementBox" style="display:none;"></div>
 
                 <!-- GROQ EXPLANATION -->
                 <div class="groq-box" id="groqBox">
@@ -1745,7 +1743,7 @@ async function analyze() {
   document.getElementById('groqBox').style.display = 'none';
   document.getElementById('barReal').style.width = '0%';
   document.getElementById('barFake').style.width = '0%';
-  document.getElementById('agreementBox').style.display = 'none';
+
 
   const token = localStorage.getItem('auth_token') || '';
   let result;
@@ -1817,28 +1815,6 @@ function showResult(r) {
   document.getElementById('pctReal').textContent = realPct + '%';
   document.getElementById('pctFake').textContent = fakePct + '%';
 
-  // ── Agreement Box ────────────────────────────
-  const agreementBox = document.getElementById('agreementBox');
-  const agreement    = r.agreement || '';
-  const groqVerdict  = r.groq_verdict || '';
-  const mlVerdict    = r.ml_verdict   || '';
-  const verdictSrc   = r.verdict_source || '';
-
-  agreementBox.style.display = 'flex';
-
-  if (!groqVerdict || groqVerdict === 'Unavailable') {
-    // Groq unavailable — ML only
-    agreementBox.className = 'agreement-box groq-only';
-    agreementBox.innerHTML = '🔶 Groq unavailable — ML model result used';
-  } else if (mlVerdict === groqVerdict) {
-    // Both agree
-    agreementBox.className = 'agreement-box agree';
-    agreementBox.innerHTML = '✅ Both ML model and Groq agree — ' + finalVerdict + ' News';
-  } else {
-    // Disagree — Groq overrides
-    agreementBox.className = 'agreement-box disagree';
-    agreementBox.innerHTML = '⚠️ Models disagree — Groq verdict used';
-  }
 
   // ── Groq Explanation ─────────────────────────
   const groqExplanation = r.groq_explanation || 'No Groq explanation available.';
