@@ -1,6 +1,6 @@
 """
 train_bert.py — Fine-tune DistilBERT on ISOT Dataset
-Fake News Detection System | Ayush Deval | 2026-27
+Fake News Detection System | Ayush Deval | 2025-26
 
 ISOT Dataset setup:
     Place True.csv and Fake.csv inside the data/ folder.

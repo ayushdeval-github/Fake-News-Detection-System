@@ -1,6 +1,6 @@
 """
 utils/auth.py — Authentication & MongoDB Integration
-Fake News Detection System | Ayush Deval | 2026-27
+Fake News Detection System | Ayush Deval | 2025-26
 """
 
 import os

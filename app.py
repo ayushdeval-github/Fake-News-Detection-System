@@ -1,6 +1,6 @@
 """
 app.py — Flask Application with MongoDB Authentication
-Fake News Detection System | Ayush Deval | 2026-27
+Fake News Detection System | Ayush Deval | 2025-26
 """
 
 from flask import Flask, request, jsonify, render_template
@@ -285,4 +285,5 @@ if __name__ == "__main__":
         app.run(host="0.0.0.0", port=port, debug=debug, use_reloader=False)
     except KeyboardInterrupt:
         logger.info("Server stopped by user.")
+
         

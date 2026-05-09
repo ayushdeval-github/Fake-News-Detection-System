@@ -1,6 +1,6 @@
 """
 utils/groq_client.py — Groq API Integration (LLaMA 3 70B)
-Fake News Detection System | Ayush Deval | 2026-27
+Fake News Detection System | Ayush Deval | 2025-26
 
 FIX LOG:
     - Updated model name from llama3-70b-8192 to llama-3.3-70b-versatile

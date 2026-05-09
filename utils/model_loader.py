@@ -1,6 +1,6 @@
 """
 utils/model_loader.py — Model Loading Utilities
-Fake News Detection System | Ayush Deval | 2026-27
+Fake News Detection System | Ayush Deval | 2025-26
 
 WHY THIS FILE EXISTS:
   ML models are large files (10 MB – 500 MB).  Loading them on every HTTP

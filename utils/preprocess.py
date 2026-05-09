@@ -1,6 +1,6 @@
 """
 utils/preprocess.py — Text Cleaning & Preprocessing Pipeline
-Fake News Detection System | Ayush Deval | 2026-27
+Fake News Detection System | Ayush Deval | 2025-26
 
 WHY THIS FILE EXISTS:
   Raw news text contains HTML tags, URLs, punctuation, stop words, and

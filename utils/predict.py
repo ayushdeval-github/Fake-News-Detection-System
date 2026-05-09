@@ -1,6 +1,6 @@
 """
 utils/predict.py — Model Inference Functions
-Fake News Detection System | Ayush Deval | 2026-27
+Fake News Detection System | Ayush Deval | 2025-26
 
 WHY THIS FILE EXISTS:
   Each of the three models has a different input format and output format.
