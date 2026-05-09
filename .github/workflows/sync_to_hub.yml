@@ -12,15 +12,8 @@ jobs:
         with:
           fetch-depth: 0
           lfs: true
-      - name: Push to Hugging Face
+      - name: Push to hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          if [ -z "$HF_TOKEN" ]; then
-            echo "Error: HF_TOKEN secret is not set."
-            exit 1
-          fi
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git remote add hf "https://ayushdeval503:$HF_TOKEN@huggingface.co/spaces/ayushdeval503/fake_news_detector"
-          git push --force hf HEAD:main
+          git push --force https://ayushdeval503:$HF_TOKEN@huggingface.co/spaces/ayushdeval503/fake_news_detector
