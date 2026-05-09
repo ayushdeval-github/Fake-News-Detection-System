@@ -287,3 +287,4 @@ if __name__ == "__main__":
         logger.info("Server stopped by user.")
 
 # Note: use_reloader=False prevents the double-loading of models during development.
+# In development, Flask's auto-reloader causes the script to run twice, which can lead to models being loaded twice and causing issues.  Setting use_reloader=False ensures that the models are loaded only once.  In production, the reloader is typically not used, so this setting is safe for both environments.
