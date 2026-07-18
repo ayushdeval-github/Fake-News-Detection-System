@@ -6,7 +6,7 @@ colorTo: gray
 sdk: gradio
 app_port: 7860
 app_file: app.py
-python_version: 3.11
+python_version: 3.11.15
 ---
 
 # Fake-News-Detection-System
