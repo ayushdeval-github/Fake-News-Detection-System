@@ -1,11 +1,14 @@
 """
-app.py — Flask Application with MongoDB Authentication
+app.py — Flask Application with MongoDB Authentication + Hugging Face ZeroGPU Gradio Mount
 Fake News Detection System | Ayush Deval
 """
 
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import time, logging, os
+import spaces
+import gradio as gr
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,7 +18,7 @@ CORS(app)
 app.secret_key = os.environ.get("SECRET_KEY")
 
 logging.basicConfig(level=logging.INFO,
-    format="%(asctime)s  [%(levelname)s]  %(name)s: %(message)s")
+                    format="%(asctime)s  [%(levelname)s]  %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # ── Load ML Models ────────────────────────────
@@ -26,6 +29,20 @@ try:
 except KeyboardInterrupt:
     logger.info("Startup interrupted by user.")
     raise SystemExit(0)
+
+
+# ══════════════════════════════════════════════
+# ZERO-GPU PREDICTION WRAPPER
+# ══════════════════════════════════════════════
+
+@spaces.GPU
+def predict_on_gpu(text, model_choice, cache):
+    """
+    Explicitly handles the deep learning evaluation (LSTM/BERT) inside the 
+    ZeroGPU isolated sandbox to prevent initialization errors.
+    """
+    from utils.predict import run_prediction
+    return run_prediction(text, model_choice, cache)
 
 
 # ══════════════════════════════════════════════
@@ -155,37 +172,11 @@ def health():
 
 
 # ══════════════════════════════════════════════
-# PREDICT ROUTE — FIXED: MongoDB save now executes
+# PREDICT ROUTE
 # ══════════════════════════════════════════════
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    """
-    POST /predict
-    Request JSON:
-        { "text": "news content here", "model": "lr" | "lstm" | "bert" }
-
-    Response JSON:
-        {
-            "final_verdict":    "Fake" | "Real",
-            "final_confidence": 94,
-            "ml_verdict":       "Fake",
-            "ml_confidence":    91,
-            "groq_verdict":     "Fake",
-            "groq_explanation": "This is false because...",
-            "groq_confidence":  "High",
-            "agreement":        "Both models agree",
-            "model_used":       "BERT",
-            "time_ms":          1420.5
-        }
-    Body: { text, model }
-    Headers: Authorization: Bearer <token>  (optional — saves history if provided)
-
-    FIXES APPLIED:
-    1. Removed early return that was blocking MongoDB save
-    2. Fixed run_prediction call — now correctly unpacks 2 values (not 3)
-    3. MongoDB save now always executes after prediction
-    """
     start_time = time.time()
 
     data = request.get_json(silent=True)
@@ -200,11 +191,9 @@ def predict():
     if model_choice not in ("lr", "lstm", "bert"):
         return jsonify({"error": "Invalid model. Choose: lr, lstm, or bert"}), 400
 
-    # ── Step 1: ML Model ──────────────────────
-    # FIX: run_prediction returns 2 values (prediction, confidence) — not 3
+    # ── Step 1: ML Model routed via ZeroGPU wrapper ──
     try:
-        from utils.predict import run_prediction
-        ml_prediction, ml_confidence = run_prediction(text, model_choice, models_cache)
+        ml_prediction, ml_confidence = predict_on_gpu(text, model_choice, models_cache)
     except Exception as exc:
         logger.error("ML inference error: %s", exc, exc_info=True)
         return jsonify({"error": "ML model inference failed.", "detail": str(exc)}), 500
@@ -224,8 +213,7 @@ def predict():
     result["model_used"] = model_choice.upper()
     result["time_ms"]    = round((time.time() - start_time) * 1000, 2)
 
-    # ── Step 4: Save to MongoDB (if logged in) ─
-    # FIX: This now executes — the early return bug is removed
+    # ── Step 4: Save to MongoDB ────────────────
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     if token:
         try:
@@ -275,13 +263,38 @@ def server_error(e):
 
 
 # ══════════════════════════════════════════════
+# GRADIO CO-EXISTENCE INTERFACE (Saves ZeroGPU Requirements)
+# ══════════════════════════════════════════════
+
+def gradio_fallback(text):
+    """Fallback function linked directly to the Gradio endpoint to validate ZeroGPU."""
+    try:
+        pred, conf = predict_on_gpu(text, "lr", models_cache)
+        return f"Model Verdict: {pred} (Confidence: {conf}%)"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+# Setup basic Gradio block to pass the startup syntax verification
+gradio_interface = gr.Interface(
+    fn=gradio_fallback,
+    inputs=gr.Textbox(lines=2, placeholder="System verification entry check..."),
+    outputs="text",
+    title="TruthLens ML Backend Gateway"
+)
+
+# Combine Flask and Gradio engines on the main WSGI listener level
+final_wsgi_app = DispatcherMiddleware(app, {
+    '/gradio': gradio_interface.wsgi_app()
+})
+
+# ══════════════════════════════════════════════
 # ENTRY POINT
 # ══════════════════════════════════════════════
 
 if __name__ == "__main__":
-    port  = int(os.environ.get("PORT", 7860))
-    debug = os.environ.get("FLASK_ENV", "production") == "development"
-    try:
-        app.run(host="0.0.0.0", port=port, debug=debug, use_reloader=False)
-    except KeyboardInterrupt:
-        logger.info("Server stopped by user.")
+    import uvicorn
+    port = int(os.environ.get("PORT", 7860))
+    
+    # Run using an ASGI server wrapper to successfully support concurrent routing
+    logger.info("Starting combined Flask + Gradio middleware server on port %d...", port)
+    uvicorn.run("app:final_wsgi_app", host="0.0.0.0", port=port, factory=False)
