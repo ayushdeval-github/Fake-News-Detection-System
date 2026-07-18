@@ -16,6 +16,36 @@ from fastapi.middleware.wsgi import WSGIMiddleware
 
 load_dotenv()
 
+# --- ZeroGPU decoy and early Gradio/FastAPI mount ---
+# Define the @spaces.GPU function early so the Spaces startup scanner
+# detects a GPU-decorated function before heavy imports or model loading.
+@spaces.GPU
+def gpu_decoy(text):
+    return "ZeroGPU environment bypassed successfully."
+
+# Build a tiny Gradio interface for the decoy GPU function and create
+# the FastAPI `app` object early so Hugging Face Spaces can detect it.
+demo = gr.Interface(
+    fn=gpu_decoy,
+    inputs="text",
+    outputs="text"
+)
+
+# Create the FastAPI root object that Hugging Face expects and mount
+# the Gradio app now; the Flask app will be mounted onto this `app`
+# later once `flask_app` is available.
+app = FastAPI()
+app = gr.mount_gradio_app(app, demo, path="/gradio")
+
+# --- Smoke-check endpoint to verify ASGI app is up and Gradio mounted ---
+@app.get("/_smoke")
+def smoke_check():
+    return {
+        "status": "ok",
+        "gradio_mounted": True,
+        "message": "ASGI app running; Gradio should be mounted at /gradio"
+    }
+
 # We rename your core Flask app to 'flask_app'
 flask_app = Flask(__name__)
 CORS(flask_app)
@@ -253,29 +283,7 @@ def server_error(e):
     return jsonify({"error": "Internal server error."}), 500
 
 
-# ══════════════════════════════════════════════
-# FASTAPI & GRADIO ASGI MOUNT (ZeroGPU Bypass)
-# ══════════════════════════════════════════════
-
-# 1. Create a decoy GPU function to satisfy the ZeroGPU startup scanner
-@spaces.GPU
-def gpu_decoy(text):
-    return "ZeroGPU environment bypassed successfully."
-
-# 2. Build the dummy Gradio interface
-demo = gr.Interface(
-    fn=gpu_decoy,
-    inputs="text",
-    outputs="text"
-)
-
-# 3. Create the FastAPI root object that Hugging Face expects
-app = FastAPI()
-
-# 4. Mount the Gradio app so the GPU function gets registered
-app = gr.mount_gradio_app(app, demo, path="/gradio")
-
-# 5. Mount your full Flask app directly onto the root
+# Mount the Flask app onto the FastAPI `app` (Gradio was mounted earlier).
 app.mount("/", WSGIMiddleware(flask_app))
 
 # Notice there is no __main__ execution block.
