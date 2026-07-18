@@ -5,7 +5,7 @@ colorFrom: red
 colorTo: gray
 sdk: gradio
 app_port: 7860
-python_version: "3.12.10"
+python_version: "3.11"
 app_file: app.py
 ---
 
