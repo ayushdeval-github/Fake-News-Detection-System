@@ -1,5 +1,5 @@
 """
-app.py — Flask Application with MongoDB Authentication + Hugging Face ZeroGPU Gradio Mount
+app.py — Flask Application with MongoDB Authentication
 Fake News Detection System | Ayush Deval
 """
 
@@ -8,51 +8,14 @@ from flask_cors import CORS
 import time, logging, os
 from dotenv import load_dotenv
 
-# --- ASGI / ZERO GPU IMPORTS ---
-import spaces
-import gradio as gr
-from fastapi import FastAPI
-from fastapi.middleware.wsgi import WSGIMiddleware
-
 load_dotenv()
 
-# --- ZeroGPU decoy and early Gradio/FastAPI mount ---
-# Define the @spaces.GPU function early so the Spaces startup scanner
-# detects a GPU-decorated function before heavy imports or model loading.
-@spaces.GPU
-def gpu_decoy(text):
-    return "ZeroGPU environment bypassed successfully."
-
-# Build a tiny Gradio interface for the decoy GPU function and create
-# the FastAPI `app` object early so Hugging Face Spaces can detect it.
-demo = gr.Interface(
-    fn=gpu_decoy,
-    inputs="text",
-    outputs="text"
-)
-
-# Create the FastAPI root object that Hugging Face expects and mount
-# the Gradio app now; the Flask app will be mounted onto this `app`
-# later once `flask_app` is available.
-app = FastAPI()
-app = gr.mount_gradio_app(app, demo, path="/gradio")
-
-# --- Smoke-check endpoint to verify ASGI app is up and Gradio mounted ---
-@app.get("/_smoke")
-def smoke_check():
-    return {
-        "status": "ok",
-        "gradio_mounted": True,
-        "message": "ASGI app running; Gradio should be mounted at /gradio"
-    }
-
-# We rename your core Flask app to 'flask_app'
-flask_app = Flask(__name__)
-CORS(flask_app)
-flask_app.secret_key = os.environ.get("SECRET_KEY")
+app = Flask(__name__)
+CORS(app)
+app.secret_key = os.environ.get("SECRET_KEY")
 
 logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s  [%(levelname)s]  %(name)s: %(message)s")
+    format="%(asctime)s  [%(levelname)s]  %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # ── Load ML Models ────────────────────────────
@@ -69,11 +32,11 @@ except KeyboardInterrupt:
 # FRONTEND ROUTES
 # ══════════════════════════════════════════════
 
-@flask_app.route("/")
+@app.route("/")
 def index():
     return render_template("index.html")
 
-@flask_app.route("/login")
+@app.route("/login")
 def login_page():
     return render_template("login.html")
 
@@ -82,7 +45,7 @@ def login_page():
 # AUTH ROUTES
 # ══════════════════════════════════════════════
 
-@flask_app.route("/auth/register", methods=["POST"])
+@app.route("/auth/register", methods=["POST"])
 def register():
     data     = request.get_json(silent=True) or {}
     username = data.get("username", "").strip()
@@ -94,7 +57,7 @@ def register():
     return jsonify(result), status
 
 
-@flask_app.route("/auth/login", methods=["POST"])
+@app.route("/auth/login", methods=["POST"])
 def login():
     data     = request.get_json(silent=True) or {}
     email    = data.get("email", "").strip()
@@ -105,12 +68,12 @@ def login():
     return jsonify(result), status
 
 
-@flask_app.route("/auth/logout", methods=["POST"])
+@app.route("/auth/logout", methods=["POST"])
 def logout():
     return jsonify({"success": True, "message": "Logged out successfully."})
 
 
-@flask_app.route("/auth/me", methods=["GET"])
+@app.route("/auth/me", methods=["GET"])
 def get_me():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     if not token:
@@ -131,7 +94,7 @@ def get_me():
 # HISTORY ROUTES
 # ══════════════════════════════════════════════
 
-@flask_app.route("/history", methods=["GET"])
+@app.route("/history", methods=["GET"])
 def get_history():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     if not token:
@@ -146,7 +109,7 @@ def get_history():
                     "history": history, "stats": stats})
 
 
-@flask_app.route("/history/delete", methods=["DELETE"])
+@app.route("/history/delete", methods=["DELETE"])
 def delete_search_item():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     if not token:
@@ -165,7 +128,7 @@ def delete_search_item():
     return jsonify({"error": "Search not found."}), 404
 
 
-@flask_app.route("/history/delete-all", methods=["DELETE"])
+@app.route("/history/delete-all", methods=["DELETE"])
 def delete_all_history_route():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     if not token:
@@ -183,7 +146,7 @@ def delete_all_history_route():
 # HEALTH CHECK
 # ══════════════════════════════════════════════
 
-@flask_app.route("/health", methods=["GET"])
+@app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok",
                     "models_loaded": list(models_cache.keys()),
@@ -192,11 +155,37 @@ def health():
 
 
 # ══════════════════════════════════════════════
-# PREDICT ROUTE 
+# PREDICT ROUTE — FIXED: MongoDB save now executes
 # ══════════════════════════════════════════════
 
-@flask_app.route("/predict", methods=["POST"])
+@app.route("/predict", methods=["POST"])
 def predict():
+    """
+    POST /predict
+    Request JSON:
+        { "text": "news content here", "model": "lr" | "lstm" | "bert" }
+
+    Response JSON:
+        {
+            "final_verdict":    "Fake" | "Real",
+            "final_confidence": 94,
+            "ml_verdict":       "Fake",
+            "ml_confidence":    91,
+            "groq_verdict":     "Fake",
+            "groq_explanation": "This is false because...",
+            "groq_confidence":  "High",
+            "agreement":        "Both models agree",
+            "model_used":       "BERT",
+            "time_ms":          1420.5
+        }
+    Body: { text, model }
+    Headers: Authorization: Bearer <token>  (optional — saves history if provided)
+
+    FIXES APPLIED:
+    1. Removed early return that was blocking MongoDB save
+    2. Fixed run_prediction call — now correctly unpacks 2 values (not 3)
+    3. MongoDB save now always executes after prediction
+    """
     start_time = time.time()
 
     data = request.get_json(silent=True)
@@ -211,7 +200,8 @@ def predict():
     if model_choice not in ("lr", "lstm", "bert"):
         return jsonify({"error": "Invalid model. Choose: lr, lstm, or bert"}), 400
 
-    # ── Step 1: ML Model Natively on CPU ──────
+    # ── Step 1: ML Model ──────────────────────
+    # FIX: run_prediction returns 2 values (prediction, confidence) — not 3
     try:
         from utils.predict import run_prediction
         ml_prediction, ml_confidence = run_prediction(text, model_choice, models_cache)
@@ -234,7 +224,8 @@ def predict():
     result["model_used"] = model_choice.upper()
     result["time_ms"]    = round((time.time() - start_time) * 1000, 2)
 
-    # ── Step 4: Save to MongoDB ────────────────
+    # ── Step 4: Save to MongoDB (if logged in) ─
+    # FIX: This now executes — the early return bug is removed
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     if token:
         try:
@@ -270,21 +261,27 @@ def predict():
 # ERROR HANDLERS
 # ══════════════════════════════════════════════
 
-@flask_app.errorhandler(404)
+@app.errorhandler(404)
 def not_found(e):
     return jsonify({"error": "Endpoint not found."}), 404
 
-@flask_app.errorhandler(405)
+@app.errorhandler(405)
 def method_not_allowed(e):
     return jsonify({"error": "Method not allowed."}), 405
 
-@flask_app.errorhandler(500)
+@app.errorhandler(500)
 def server_error(e):
     return jsonify({"error": "Internal server error."}), 500
 
 
-# Mount the Flask app onto the FastAPI `app` (Gradio was mounted earlier).
-app.mount("/", WSGIMiddleware(flask_app))
+# ══════════════════════════════════════════════
+# ENTRY POINT
+# ══════════════════════════════════════════════
 
-# Notice there is no __main__ execution block.
-# We stop here and let Hugging Face launch the 'app' variable naturally!
+if __name__ == "__main__":
+    port  = int(os.environ.get("PORT", 5000))
+    debug = os.environ.get("FLASK_ENV", "production") == "development"
+    try:
+        app.run(host="0.0.0.0", port=port, debug=debug, use_reloader=False)
+    except KeyboardInterrupt:
+        logger.info("Server stopped by user.")
