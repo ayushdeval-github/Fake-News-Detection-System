@@ -2,12 +2,6 @@
 utils/groq_client.py — Groq API Integration (LLaMA 3 70B)
 Fake News Detection System | Ayush Deval
 
-FIX LOG:
-    - Updated model name from llama3-70b-8192 to llama-3.3-70b-versatile
-      (Groq deprecated the old model name)
-    - Added fallback model if primary fails
-    - Improved response parser — handles any format variation
-    - Added debug test function to verify API key works
 """
 
 import os
@@ -19,8 +13,8 @@ logger = logging.getLogger(__name__)
 # ── UPDATED MODEL NAMES ───────────────────────
 # llama3-70b-8192 was DEPRECATED by Groq
 # Use these instead:
-GROQ_MODEL_PRIMARY  = "llama-3.3-70b-versatile"   # primary — best accuracy
-GROQ_MODEL_FALLBACK = "llama3-8b-8192"             # fallback — if primary fails
+GROQ_MODEL_PRIMARY  = "openai/gpt-oss-120b"
+GROQ_MODEL_FALLBACK = "openai/gpt-oss-20b"
 MAX_TOKENS          = 400
 
 
