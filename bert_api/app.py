@@ -24,7 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Load environment variables from root .env
 load_dotenv(BASE_DIR / ".env")
 
-MODEL_DIR = BASE_DIR / "models" / "bert_model_fp16"
+MODEL_DIR = Path(__file__).resolve().parent / "models" / "bert_model_fp16"
 
 API_KEY = os.getenv("BERT_API_KEY")
 
