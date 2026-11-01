@@ -1,133 +1,142 @@
+
 """
 utils/preprocess.py — Text Cleaning & Preprocessing Pipeline
-Fake News Detection System | Ayush Deval
-
-WHY THIS FILE EXISTS:
-  Raw news text contains HTML tags, URLs, punctuation, stop words, and
-  capitalization noise that confuse ML models. This module produces
-  a clean, normalised string that every model can work with.
+Fake News Detection System
 """
 
 import re
 import string
+import logging
+from pathlib import Path
+
 import nltk
 
-# Download required NLTK data on first run
-for pkg in ("stopwords", "punkt", "wordnet"):
+logger = logging.getLogger(__name__)
+
+# --------------------------------------------------
+# NLTK DATA CONFIGURATION
+# --------------------------------------------------
+
+NLTK_DATA_DIR = Path.home() / "nltk_data"
+NLTK_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+if str(NLTK_DATA_DIR) not in nltk.data.path:
+    nltk.data.path.insert(0, str(NLTK_DATA_DIR))
+
+
+def ensure_nltk_resource(package, resource):
+    """Check and download an NLTK resource when missing."""
+
     try:
-        nltk.data.find(f"corpora/{pkg}" if pkg != "punkt" else f"tokenizers/{pkg}")
+        nltk.data.find(resource)
+        return
+
     except LookupError:
-        nltk.download(pkg, quiet=True)
+        logger.info("Downloading NLTK resource: %s", package)
 
-from nltk.corpus   import stopwords
-from nltk.stem     import PorterStemmer, WordNetLemmatizer
+        success = nltk.download(
+            package,
+            download_dir=str(NLTK_DATA_DIR),
+            quiet=True
+        )
 
-STOP_WORDS  = set(stopwords.words("english"))
-STEMMER     = PorterStemmer()
-LEMMATIZER  = WordNetLemmatizer()
+        if not success:
+            raise RuntimeError(
+                f"Failed to download NLTK resource: {package}"
+            )
+
+        try:
+            nltk.data.find(resource)
+
+        except LookupError as exc:
+            raise RuntimeError(
+                f"NLTK resource unavailable: {package}"
+            ) from exc
 
 
-# ──────────────────────────────────────────────
-# CORE CLEANING FUNCTION
-# ──────────────────────────────────────────────
+# Required resources
+ensure_nltk_resource("stopwords", "corpora/stopwords")
+ensure_nltk_resource("wordnet", "corpora/wordnet.zip")
+
+
+# --------------------------------------------------
+# NLTK IMPORTS AND INITIALIZATION
+# --------------------------------------------------
+
+from nltk.corpus import stopwords
+from nltk.stem import PorterStemmer, WordNetLemmatizer
+
+STOP_WORDS = set(stopwords.words("english"))
+
+STEMMER = PorterStemmer()
+LEMMATIZER = WordNetLemmatizer()
+
+
+# --------------------------------------------------
+# TEXT CLEANING — LR AND LSTM
+# --------------------------------------------------
 
 def clean_text(text: str, use_stemming: bool = False) -> str:
     """
-    Full preprocessing pipeline used by Logistic Regression and LSTM.
+    Clean news text for Logistic Regression and LSTM.
 
-    Steps:
-        1. Lowercase          — 'Fake' == 'fake'
-        2. Remove URLs        — links carry no semantic value
-        3. Remove HTML tags   — strip web-scraping artefacts
-        4. Remove punctuation — models don't need '!', '?', etc.
-        5. Remove digits      — numbers rarely help fake-news detection
-        6. Tokenise           — split into word list
-        7. Remove stop words  — 'the', 'is', 'at' add noise
-        8. Lemmatise / Stem   — 'running' → 'run'  (reduces vocab)
-
-    Args:
-        text:         Raw input string.
-        use_stemming: If True use PorterStemmer; otherwise WordNetLemmatizer.
-
-    Returns:
-        Cleaned, space-joined token string.
+    Default: WordNet lemmatization.
+    Optional: Porter stemming.
     """
-    if not isinstance(text, str):
-        text = str(text)
 
-    # 1. Lowercase
+    if not isinstance(text, str):
+        raise TypeError("Input text must be a string.")
+
+    # Convert to lowercase
     text = text.lower()
 
-    # 2. Remove URLs
+    # Remove URLs
     text = re.sub(r"https?://\S+|www\.\S+", " ", text)
 
-    # 3. Remove HTML tags
+    # Remove HTML tags
     text = re.sub(r"<[^>]+>", " ", text)
 
-    # 4. Remove punctuation
+    # Remove punctuation
     text = text.translate(str.maketrans("", "", string.punctuation))
 
-    # 5. Remove digits
+    # Remove numbers
     text = re.sub(r"\d+", " ", text)
 
-    # 6. Tokenise (simple split — fast, no punkt dependency for inference)
+    # Normalize whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # Tokenize
     tokens = text.split()
 
-    # 7. Remove stop words and very short tokens
-    tokens = [t for t in tokens if t not in STOP_WORDS and len(t) > 2]
+    # Remove stopwords and short tokens
+    tokens = [
+        token for token in tokens
+        if token not in STOP_WORDS and len(token) > 2
+    ]
 
-    # 8. Normalise
+    # Apply stemming or lemmatization
     if use_stemming:
-        tokens = [STEMMER.stem(t) for t in tokens]
+        tokens = [STEMMER.stem(token) for token in tokens]
     else:
-        tokens = [LEMMATIZER.lemmatize(t) for t in tokens]
+        tokens = [LEMMATIZER.lemmatize(token) for token in tokens]
 
     return " ".join(tokens)
 
 
-# ──────────────────────────────────────────────
-# BERT — raw text (minimal cleaning)
-# ──────────────────────────────────────────────
+# --------------------------------------------------
+# TEXT CLEANING — BERT
+# --------------------------------------------------
 
 def clean_text_for_bert(text: str, max_chars: int = 512) -> str:
     """
-    BERT has its own internal tokeniser and handles stop words, casing, and
-    sub-word splitting natively.  We only strip HTML and truncate.
-
-    WHY DIFFERENT FROM clean_text():
-        Removing stop words or stemming before feeding BERT destroys the
-        contextual signals the model was trained to exploit.  BERT needs
-        natural language, not a bag-of-tokens.
+    Minimal text cleaning for BERT.
+    Preserve original words and sentence structure.
     """
-    text = re.sub(r"<[^>]+>", " ", text)          # strip HTML only
-    text = re.sub(r"\s+", " ", text).strip()       # collapse whitespace
+
+    if not isinstance(text, str):
+        raise TypeError("Input text must be a string.")
+
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
     return text[:max_chars]
-
-
-# ──────────────────────────────────────────────
-# HELPER UTILITIES
-# ──────────────────────────────────────────────
-
-def get_text_stats(text: str) -> dict:
-    """Return basic statistics useful for logging and analysis."""
-    words = text.split()
-    return {
-        "char_count":   len(text),
-        "word_count":   len(words),
-        "unique_words": len(set(w.lower() for w in words)),
-        "avg_word_len": round(sum(len(w) for w in words) / max(len(words), 1), 2),
-    }
-
-
-def validate_input(text: str) -> tuple[bool, str]:
-    """
-    Returns (is_valid, error_message).
-    Call this before preprocessing to catch bad input early.
-    """
-    if not text or not text.strip():
-        return False, "Input text is empty."
-    if len(text.strip()) < 10:
-        return False, "Input text is too short (minimum 10 characters)."
-    if len(text) > 10_000:
-        return False, "Input text is too long (maximum 10,000 characters)."
-    return True, ""
