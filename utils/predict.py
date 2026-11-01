@@ -10,7 +10,9 @@ BERT runs through the separate BERT API service.
 import os
 import logging
 import requests
+from dotenv import load_dotenv
 
+load_dotenv()
 from utils.preprocess import clean_text, clean_text_for_bert
 
 logger = logging.getLogger(__name__)
