@@ -1,0 +1,6 @@
+Flask
+gunicorn
+torch
+transformers
+safetensors
+python-dotenv
